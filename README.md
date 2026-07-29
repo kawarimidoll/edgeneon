@@ -1,5 +1,7 @@
 # Edgeneon
 
+https://github.com/user-attachments/assets/30d2be6d-94b2-4b51-b032-276cd743f25a
+
 An animated neon glow along the edges of your Mac's screen.
 
 The macOS menu bar is transparent, so a window placed *underneath* it shows
