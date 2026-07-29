@@ -1,0 +1,91 @@
+name: Release
+
+# Manual only. The release is a CalVer tag YYYY.MM.DD.N (N = that day's release
+# count, 1-based) placed on the current main commit. No manual version input.
+#
+# Nothing is written to main: the binary version is derived from git at build
+# time (see flake.nix), so there is no package.nix bump to commit. The workflow
+# only creates the tag and the GitHub release.
+#
+# Idempotent: the tag is created only if missing and the release only if absent.
+# If a previous run tagged a version but did not finish its release, a re-run
+# resumes that exact version instead of allocating a new one.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# Least privilege by default; the release job opts into contents: write.
+permissions: {}
+
+jobs:
+  release:
+    name: Tag and release
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # push the release tag, create the GitHub release
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0 # need full tag history to count same-day releases
+          persist-credentials: false
+
+      - name: Compute CalVer (YYYY.MM.DD.N)
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --tags --force
+          date=$(date +%Y.%m.%d)
+          count=$(git tag -l "${date}.*" | wc -l | tr -d ' ')
+          last=$(git tag -l "${date}.*" | sort -V | tail -n1)
+          if [ "$count" -gt 0 ] && ! gh release view "$last" >/dev/null 2>&1; then
+            # The latest tag for today has no release yet: a previous run failed
+            # after tagging. Resume that exact version rather than bumping N.
+            version="$last"
+            echo "Resuming incomplete release $version"
+          else
+            version="${date}.$((count + 1))"
+            echo "New release $version"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Build and test (release gate)
+        run: |
+          nix build .#default
+          ./test.sh ./result/bin/edgeneon
+
+      - name: Tag the release
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "Tag $VERSION already exists; reusing it"
+          else
+            git tag -a "$VERSION" -m "release: $VERSION"
+          fi
+          git push origin "refs/tags/$VERSION"
+
+      - name: Create GitHub release
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists"
+          else
+            gh release create "$VERSION" --generate-notes
+          fi
