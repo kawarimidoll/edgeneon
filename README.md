@@ -15,24 +15,54 @@ runners and long-running jobs.
 
 ## Install
 
-Requires macOS. [nix](https://nixos.org/) is the easiest route:
+Requires macOS.
+
+Try it without installing anything:
 
 ```sh
-# try it without installing anything
 nix run github:kawarimidoll/edgeneon -- --duration 10
 ```
 
-nix-darwin:
+Install it as an ordinary command:
+
+```sh
+nix profile install github:kawarimidoll/edgeneon
+```
+
+Or declare it as a flake input:
+
+```nix
+inputs.edgeneon.url = "github:kawarimidoll/edgeneon";
+```
+
+and add the package where your setup keeps them — nix-darwin:
 
 ```nix
 environment.systemPackages = [ inputs.edgeneon.packages.${pkgs.system}.default ];
 ```
 
-home-manager, kept running as a login agent:
+home-manager:
 
 ```nix
 home.packages = [ inputs.edgeneon.packages.${pkgs.system}.default ];
+```
 
+Without nix — one file, no dependencies, put the binary anywhere on `PATH`:
+
+```sh
+git clone https://github.com/kawarimidoll/edgeneon
+cd edgeneon
+swiftc -O main.swift -o edgeneon
+install -m755 edgeneon ~/.local/bin/
+```
+
+## Keeping it running
+
+Nothing is needed for the `--duration` uses above; this is only for leaving the
+glow on. Start it in the background with `edgeneon &`, or wire it as a login
+agent — home-manager:
+
+```nix
 launchd.agents.edgeneon = {
   enable = true;
   config = {
@@ -41,12 +71,6 @@ launchd.agents.edgeneon = {
     KeepAlive = true;
   };
 };
-```
-
-Or build it yourself — it is one file with no dependencies:
-
-```sh
-swiftc -O main.swift -o edgeneon
 ```
 
 ## Usage
